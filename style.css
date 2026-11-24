@@ -158,3 +158,19 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
 .actions .left { margin-right: auto; }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 14px; z-index: 50; }
+
+/* Photos */
+.photos { display: flex; gap: 6px; overflow-x: auto; margin: 8px 0 4px; scrollbar-width: none; }
+.photos::-webkit-scrollbar { display: none; }
+.photo { flex: none; padding: 0; border: 0; background: none; cursor: zoom-in; border-radius: 10px; overflow: hidden; }
+.photo img { display: block; width: 120px; height: 84px; object-fit: cover; }
+.photos .photo:only-child img { width: 220px; height: 140px; }
+.photo-edit { display: flex; flex-wrap: wrap; gap: 8px; }
+.thumb { position: relative; width: 76px; height: 76px; border-radius: 10px; overflow: hidden; background: var(--bg); border: 1px solid var(--line); display: grid; place-items: center; }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.thumb button { position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; border-radius: 50%; border: 0; background: rgba(0,0,0,.6); color: #fff; font-size: 12px; cursor: pointer; }
+.add-thumb { margin: 0; cursor: pointer; color: var(--accent); font-size: 22px; border-style: dashed; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.add-thumb span { font-size: 12px; }
+.loading-thumb { color: var(--muted); }
+.lightbox { padding: 10px; text-align: center; }
+.lightbox img { display: block; max-width: 100%; max-height: 78vh; margin: 0 auto 10px; border-radius: 10px; }

@@ -22,6 +22,7 @@ create table if not exists options (
   distance text,
   cancel_by date,
   notes text,
+  images jsonb not null default '[]'::jsonb,
   status text not null default 'idea' check (status in ('idea', 'shortlisted', 'booked', 'paid')),
   booked_by text,
   added_by text,
@@ -57,6 +58,14 @@ grant select, insert, update, delete on events, options, members, rankings to an
 
 -- Live updates between everyone's phones.
 alter publication supabase_realtime add table events, options, members, rankings;
+
+-- Photos bucket.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('photos', 'photos', true, 5242880, array['image/jpeg', 'image/png', 'image/webp'])
+on conflict (id) do nothing;
+create policy "photos read" on storage.objects for select to anon, authenticated using (bucket_id = 'photos');
+create policy "photos upload" on storage.objects for insert to anon, authenticated with check (bucket_id = 'photos');
+create policy "photos delete" on storage.objects for delete to anon, authenticated using (bucket_id = 'photos');
 
 -- Starting events (edit or delete them in the app).
 insert into events (name, start_date, end_date, location) values

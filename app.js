@@ -4,6 +4,19 @@ const STATUSES = ['idea', 'shortlisted', 'booked', 'paid'];
 const STATUS_LABEL = { idea: 'Idea', shortlisted: 'Shortlisted', booked: 'Booked', paid: 'Paid' };
 const cfg = window.APP_CONFIG || {};
 const DEMO = !(cfg.supabaseUrl && cfg.supabaseKey);
+const PHOTO_BUCKET = 'photos';
+const MAX_PHOTOS = 6;
+
+// Shrink phone photos/screenshots to a ~1600px JPEG before upload (keeps storage and data use small).
+async function shrinkImage(file, max = 1600) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  return new Promise((res, rej) => canvas.toBlob((b) => (b ? res(b) : rej(new Error('Could not read image'))), 'image/jpeg', 0.8));
+}
 
 // ---------- Data stores ----------
 async function supabaseStore() {
@@ -19,6 +32,16 @@ async function supabaseStore() {
     update: async (t, id, patch) => check(await sb.from(t).update(patch).eq('id', id)),
     remove: async (t, id) => check(await sb.from(t).delete().eq('id', id)),
     upsert: async (t, row, onConflict) => check(await sb.from(t).upsert(row, { onConflict })),
+    async uploadImage(blob) {
+      const path = `${crypto.randomUUID()}.jpg`;
+      check(await sb.storage.from(PHOTO_BUCKET).upload(path, blob, { contentType: 'image/jpeg' }));
+      return sb.storage.from(PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
+    },
+    async deleteImages(urls) {
+      const marker = `/object/public/${PHOTO_BUCKET}/`;
+      const paths = urls.filter((u) => u?.includes(marker)).map((u) => decodeURIComponent(u.split(marker)[1]));
+      if (paths.length) await sb.storage.from(PHOTO_BUCKET).remove(paths); // best effort
+    },
     subscribe(onChange, onStatus) {
       sb.channel('everything')
         .on('postgres_changes', { event: '*', schema: 'public' }, onChange)
@@ -59,6 +82,13 @@ function localStore() {
       const r = d[t].find((x) => keys.every((k) => x[k] === row[k]));
       if (r) Object.assign(r, row); else d[t].push({ created_at: new Date().toISOString(), ...row });
     }),
+    uploadImage: (blob) => new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(blob);
+    }),
+    deleteImages: async () => {},
     subscribe(onChange, onStatus) {
       window.addEventListener('storage', (e) => e.key === KEY && onChange());
       onStatus(false);
@@ -292,6 +322,13 @@ function renderEvent(e) {
     ${list}`;
 }
 
+const photosOf = (o) => (Array.isArray(o?.images) ? o.images.filter((u) => typeof u === 'string' && /^(https:|data:image\/)/.test(u)) : []);
+function photoStrip(o, limit) {
+  const pics = photosOf(o).slice(0, limit);
+  if (!pics.length) return '';
+  return `<div class="photos">${pics.map((u) => `<button type="button" class="photo" data-act="photo" data-src="${esc(u)}"><img src="${esc(u)}" alt="" loading="lazy" /></button>`).join('')}</div>`;
+}
+
 function optionCard(o, rankNo, x = {}) {
   const pp = perPerson(o);
   const url = safeUrl(o.url);
@@ -303,6 +340,7 @@ function optionCard(o, rankNo, x = {}) {
       <div class="rank ${rankNo === 1 ? 'top' : ''}">${rankNo}</div>
       <div class="opt-body">
         <div class="opt-title">${url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(o.name)} ↗</a>` : esc(o.name)}${x.isNew ? '<span class="tag-new">NEW</span>' : ''}</div>
+        ${photoStrip(o, x.mine ? 1 : MAX_PHOTOS)}
         <div class="price">${money(pp)} <small>pp · ${money(o.total_price)} total for ${o.people ?? '?'}</small></div>
         <div class="facts">
           ${beds ? `<span>🛏 ${esc(beds)}</span>` : ''}
@@ -319,7 +357,7 @@ function optionCard(o, rankNo, x = {}) {
             <option value="">Booked by…</option>
             ${[...new Set([...members, o.booked_by].filter(Boolean))].map((m) => `<option value="${esc(m)}" ${m === o.booked_by ? 'selected' : ''}>Booked by ${esc(m)}</option>`).join('')}
           </select>` : ''}
-          <span class="score">${x.voted ? `${x.points} pts${x.firsts ? ` · ${x.firsts}× #1` : ''}` : ''}${o.added_by ? ` · added by ${esc(o.added_by)}` : ''}</span>
+          <span class="score">${[x.voted ? `${x.points} pts${x.firsts ? ` · ${x.firsts}× #1` : ''}` : '', o.added_by ? `added by ${esc(o.added_by)}` : ''].filter(Boolean).join(' · ')}</span>
           <button class="btn small" data-act="edit-option" data-id="${o.id}" style="margin-left:auto">Edit</button>
         </div>`}
       </div>
@@ -376,11 +414,14 @@ function eventForm(e) {
 
 function optionForm(eid, o) {
   const defaultPeople = o?.people ?? (memberNames().length || 6);
+  const photoState = { pics: photosOf(o), original: photosOf(o), added: [], uploading: 0, saved: false };
   openModal(`
     <form>
       <h2>${o ? 'Edit option' : 'Add an option'}</h2>
       <label>Link (Airbnb, Booking.com, …)</label><input name="url" type="url" inputmode="url" value="${esc(o?.url)}" placeholder="https://…" />
       <label>Name</label><input name="name" value="${esc(o?.name)}" placeholder="e.g. Beach house on Moseley St" />
+      <label>Photos (screenshots or pics to remember it by)</label>
+      <div class="photo-edit" id="photo-edit"></div>
       <div class="grid2">
         <div><label>Total price ($)</label><input name="total_price" type="number" inputmode="decimal" min="0" step="any" value="${o?.total_price ?? ''}" /></div>
         <div><label>Number of people</label><input name="people" type="number" inputmode="numeric" min="1" step="1" value="${defaultPeople}" /></div>
@@ -406,8 +447,10 @@ function optionForm(eid, o) {
     if (btn === 'delete') {
       if (!confirm(`Delete "${o.name}"?`)) return false;
       await act(() => db.remove('options', o.id));
+      db.deleteImages(photosOf(o)).catch(() => {});
       return;
     }
+    if (photoState.uploading) { toast('Wait for the photos to finish uploading'); return false; }
     const url = d.url.trim();
     const name = d.name.trim() || (url ? `Listing on ${hostLabel(url)}` : '');
     if (!name) { toast('Add a link or a name'); return false; }
@@ -417,6 +460,11 @@ function optionForm(eid, o) {
       bedrooms: num(d.bedrooms), beds: num(d.beds),
       distance: d.distance.trim(), cancel_by: d.cancel_by || null, notes: d.notes.trim(),
     };
+    // Only send images when they changed, so the form keeps working even before the photos column exists.
+    if (JSON.stringify(photoState.pics) !== JSON.stringify(photoState.original)) row.images = photoState.pics;
+    photoState.saved = true;
+    const dropped = photoState.original.filter((u) => !photoState.pics.includes(u));
+    if (dropped.length) db.deleteImages(dropped).catch(() => {});
     if (o) {
       const moved = d.event_id && d.event_id !== o.event_id;
       if (moved) row.event_id = d.event_id;
@@ -433,7 +481,52 @@ function optionForm(eid, o) {
     };
     form.addEventListener('input', calc);
     calc();
+    setupPhotoEditor(form.querySelector('#photo-edit'), photoState);
+    // Closing without saving: remove photos uploaded in this form so they don't pile up in storage.
+    modal.addEventListener('close', () => {
+      if (!photoState.saved && photoState.added.length) db.deleteImages(photoState.added).catch(() => {});
+    }, { once: true });
   });
+}
+
+function setupPhotoEditor(box, ps) {
+  const draw = () => {
+    box.innerHTML = `
+      ${ps.pics.map((u, i) => `<div class="thumb"><img src="${esc(u)}" alt="" /><button type="button" data-i="${i}" aria-label="Remove photo">✕</button></div>`).join('')}
+      ${Array.from({ length: ps.uploading }, () => '<div class="thumb loading-thumb">…</div>').join('')}
+      ${ps.pics.length + ps.uploading < MAX_PHOTOS ? `<label class="thumb add-thumb">＋<span>Add</span><input type="file" accept="image/*" multiple hidden /></label>` : ''}`;
+  };
+  box.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button[data-i]');
+    if (!b) return;
+    ps.pics.splice(Number(b.dataset.i), 1);
+    draw();
+  });
+  box.addEventListener('change', async (ev) => {
+    const files = [...(ev.target.files || [])].slice(0, MAX_PHOTOS - ps.pics.length - ps.uploading);
+    if (!files.length) return;
+    ps.uploading += files.length;
+    draw();
+    await Promise.all(files.map(async (f) => {
+      try {
+        const url = await db.uploadImage(await shrinkImage(f));
+        ps.pics.push(url);
+        ps.added.push(url);
+      } catch (err) {
+        showError(err);
+      } finally {
+        ps.uploading -= 1;
+        draw();
+      }
+    }));
+  });
+  draw();
+}
+
+function showPhoto(src) {
+  modal.innerHTML = `<div class="lightbox"><img src="${esc(src)}" alt="" /><button class="btn" type="button">Close</button></div>`;
+  modal.querySelector('button').onclick = () => modal.close();
+  modal.showModal();
 }
 
 // ---------- Actions ----------
@@ -461,6 +554,7 @@ app.addEventListener('click', async (ev) => {
   else if (a === 'edit-event') eventForm(state.events.find((e) => e.id === id));
   else if (a === 'add-option') optionForm(eid, null);
   else if (a === 'edit-option') { const o = state.options.find((x) => x.id === id); optionForm(o.event_id, o); }
+  else if (a === 'photo') showPhoto(el.dataset.src);
   else if (a === 'mode') { viewMode[eid] = el.dataset.mode; render(); }
   else if (a === 'save-ranking') saveRanking(eid, myOrder(eid).order);
   else if (a === 'move') {
