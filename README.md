@@ -47,3 +47,6 @@ Both values are meant to be public. They let anyone with the link do exactly wha
 
 ## Privacy note
 There are no passwords, so anyone who has the link can view and edit. Only share it with your group.
+
+## Publishing a change
+Bump the `?v=` number on the three files in `index.html` with every change. Open copies of the app see the new number the next time they come back on screen, and reload.

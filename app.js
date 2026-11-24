@@ -163,6 +163,16 @@ function deadlineHtml(s) {
 // Distance is stored in km as a plain number (e.g. "0.8"); older free-text values are shown as typed.
 const isKm = (v) => v != null && v !== '' && !isNaN(Number(v));
 const fmtKm = (v) => (isKm(v) ? `${Number(v).toLocaleString('en-AU', { maximumFractionDigits: 2 })} km` : String(v));
+// Anything 50+ was almost certainly typed in metres (e.g. 800), so convert it to km.
+function kmFromInput(v) {
+  v = String(v ?? '').trim();
+  if (!isKm(v)) return v;
+  const n = Number(v);
+  if (n < 50) return v;
+  const km = String(Math.round(n) / 1000);
+  toast(`Saved distance as ${km} km (looked like metres)`);
+  return km;
+}
 const hostLabel = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const sortedEvents = () => [...state.events].sort((a, b) => (a.start_date || '9999').localeCompare(b.start_date || '9999') || a.name.localeCompare(b.name));
 const eventOptions = (eid) => state.options.filter((o) => o.event_id === eid).sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -461,7 +471,7 @@ function optionForm(eid, o) {
       url, name,
       total_price: num(d.total_price), people: num(d.people),
       bedrooms: num(d.bedrooms), beds: num(d.beds),
-      distance: d.distance.trim(), cancel_by: d.cancel_by || null, notes: d.notes.trim(),
+      distance: kmFromInput(d.distance), cancel_by: d.cancel_by || null, notes: d.notes.trim(),
     };
     // Only send images when they changed, so the form keeps working even before the photos column exists.
     if (JSON.stringify(photoState.pics) !== JSON.stringify(photoState.original)) row.images = photoState.pics;
@@ -590,6 +600,21 @@ app.addEventListener('submit', (ev) => {
 
 window.addEventListener('hashchange', () => { render(); window.scrollTo(0, 0); });
 modal.addEventListener('click', (ev) => { if (ev.target === modal) modal.close(); });
+
+// ---------- Auto-update ----------
+// Phones keep old copies of the app. When the app comes back on screen, check whether a newer
+// version has been published (index.html points at app.js?v=…) and reload to pick it up.
+const MY_VERSION = new URL(import.meta.url).searchParams.get('v');
+async function checkForUpdate() {
+  if (!MY_VERSION || modal.open) return;
+  try {
+    const html = await (await fetch(`./?t=${Date.now()}`, { cache: 'no-store' })).text();
+    const latest = html.match(/app\.js\?v=([\w.-]+)/)?.[1];
+    if (latest && latest !== MY_VERSION) location.reload();
+  } catch { /* offline: try again next time */ }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+setInterval(checkForUpdate, 10 * 60 * 1000);
 
 // ---------- Start ----------
 (async () => {
