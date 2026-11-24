@@ -160,6 +160,9 @@ function deadlineHtml(s) {
   if (d <= 14) return `<span class="dl-soon">${label} · ${d === 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`}</span>`;
   return label;
 }
+// Distance is stored in km as a plain number (e.g. "0.8"); older free-text values are shown as typed.
+const isKm = (v) => v != null && v !== '' && !isNaN(Number(v));
+const fmtKm = (v) => (isKm(v) ? `${Number(v).toLocaleString('en-AU', { maximumFractionDigits: 2 })} km` : String(v));
 const hostLabel = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 const sortedEvents = () => [...state.events].sort((a, b) => (a.start_date || '9999').localeCompare(b.start_date || '9999') || a.name.localeCompare(b.name));
 const eventOptions = (eid) => state.options.filter((o) => o.event_id === eid).sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -344,7 +347,7 @@ function optionCard(o, rankNo, x = {}) {
         <div class="price">${money(pp)} <small>pp · ${money(o.total_price)} total for ${o.people ?? '?'}</small></div>
         <div class="facts">
           ${beds ? `<span>🛏 ${esc(beds)}</span>` : ''}
-          ${o.distance ? `<span>🏐 ${esc(o.distance)} to courts</span>` : ''}
+          ${o.distance ? `<span>${esc(fmtKm(o.distance))} from courts</span>` : ''}
           <span>Free cancel by: ${deadlineHtml(o.cancel_by)}</span>
         </div>
         ${!x.mine && o.notes ? `<div class="notes">${esc(o.notes)}</div>` : ''}
@@ -432,7 +435,7 @@ function optionForm(eid, o) {
         <div><label>Beds</label><input name="beds" type="number" inputmode="numeric" min="0" value="${o?.beds ?? ''}" /></div>
       </div>
       <div class="grid2">
-        <div><label>Distance to courts</label><input name="distance" value="${esc(o?.distance)}" placeholder="e.g. 800 m" /></div>
+        <div><label>Distance to courts (km)</label><input name="distance" type="number" inputmode="decimal" min="0" step="0.01" value="${isKm(o?.distance) ? esc(o.distance) : ''}" placeholder="e.g. 0.8" /></div>
         <div><label>Free cancellation until</label><input name="cancel_by" type="date" value="${esc(o?.cancel_by)}" /></div>
       </div>
       <label>Notes</label><textarea name="notes" placeholder="Parking, pool, check-in time…">${esc(o?.notes)}</textarea>
