@@ -395,6 +395,8 @@ function optionForm(eid, o) {
         <div><label>Free cancellation until</label><input name="cancel_by" type="date" value="${esc(o?.cancel_by)}" /></div>
       </div>
       <label>Notes</label><textarea name="notes" placeholder="Parking, pool, check-in time…">${esc(o?.notes)}</textarea>
+      ${o ? `<label>Event (change to move this option, with its status and booking)</label>
+      <select name="event_id">${sortedEvents().map((e) => `<option value="${e.id}" ${e.id === o.event_id ? 'selected' : ''}>${esc(e.name)} · ${esc(fmtRange(e.start_date, e.end_date))}</option>`).join('')}</select>` : ''}
       <div class="actions">
         ${o ? '<button class="btn danger left" value="delete" formnovalidate>Delete</button>' : ''}
         <button class="btn" value="cancel" formnovalidate>Cancel</button>
@@ -415,8 +417,15 @@ function optionForm(eid, o) {
       bedrooms: num(d.bedrooms), beds: num(d.beds),
       distance: d.distance.trim(), cancel_by: d.cancel_by || null, notes: d.notes.trim(),
     };
-    if (o) await act(() => db.update('options', o.id, row));
-    else await act(() => db.insert('options', { ...row, event_id: eid, status: 'idea', added_by: me }));
+    if (o) {
+      const moved = d.event_id && d.event_id !== o.event_id;
+      if (moved) row.event_id = d.event_id;
+      await act(() => db.update('options', o.id, row));
+      if (moved) {
+        toast(`Moved to ${state.events.find((e) => e.id === d.event_id)?.name}`);
+        location.hash = `#e/${d.event_id}`;
+      }
+    } else await act(() => db.insert('options', { ...row, event_id: eid, status: 'idea', added_by: me }));
   }, (form) => {
     const calc = () => {
       const t = num(form.total_price.value), p = num(form.people.value);
