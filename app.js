@@ -445,7 +445,7 @@ function optionForm(eid, o) {
         <div><label>Beds</label><input name="beds" type="number" inputmode="numeric" min="0" value="${o?.beds ?? ''}" /></div>
       </div>
       <div class="grid2">
-        <div><label>Distance to courts (km)</label><input name="distance" type="number" inputmode="decimal" min="0" step="0.01" value="${isKm(o?.distance) ? esc(o.distance) : ''}" placeholder="e.g. 0.8" /></div>
+        <div><label>Distance to courts (km)</label><input name="distance" type="number" inputmode="decimal" min="0" step="0.01" value="${isKm(o?.distance) ? esc(o.distance) : ''}" placeholder="e.g. 2 km" /></div>
         <div><label>Free cancellation until</label><input name="cancel_by" type="date" value="${esc(o?.cancel_by)}" /></div>
       </div>
       <label>Notes</label><textarea name="notes" placeholder="Parking, pool, check-in time…">${esc(o?.notes)}</textarea>
